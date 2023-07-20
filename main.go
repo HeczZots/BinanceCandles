@@ -1,69 +1,49 @@
 package main
 
 import (
+	"TT/models"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	websocket "github.com/gorilla/websocket"
 )
 
-type Candle struct {
-	CandleE string `json:"e"` // Event type
-	E       int64  `json:"E"` // Event time
-	S       string `json:"s"` // Symbol
-	K       K      `json:"k"`
-}
-
-type K struct {
-	KT int64  `json:"t"` // Kline start time
-	T  int64  `json:"T"` // Kline close time
-	S  string `json:"s"` //symbol
-	I  string `json:"i"` //interval
-	F  int64  `json:"f"` // First trade ID
-	L  int64  `json:"L"` // Last trade ID
-	O  string `json:"o"` // Open price
-	C  string `json:"c"` // Close price
-	H  string `json:"h"` // High price
-	KL string `json:"l"` // Low price
-	KV string `json:"v"` // Base asset volume
-	N  int64  `json:"n"` // Number of trades
-	X  bool   `json:"x"` // Is this kline closed?
-	KQ string `json:"q"` // Quote asset volume
-	V  string `json:"V"` // Taker buy base asset volume
-	Q  string `json:"Q"` // Taker buy quote asset volume
-	B  string `json:"B"` // Ignore
-}
-
 func main() {
 
-	ch := make(chan Candle)
+	ch := make(chan models.Candle)
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
 	if len(os.Args) < 3 {
 		fmt.Println("Run follows: ", os.Args[0], "<symbol> <timeframe>")
 		return
 	}
+	//choice symb in lowercase
 	symb := os.Args[1]
 	subscribeMessage := []byte(fmt.Sprintf(`{"method": "SUBSCRIBE","params": ["%s@kline_1s"],"id": 1}`, symb))
-	candle := os.Args[2]
+	//choice tf in seconds
+	timeframe := os.Args[2]
+	tf, _ := strconv.Atoi(timeframe)
 	go func() {
 		<-interrupt
 		time.Sleep(1 * time.Second)
 		fmt.Printf("Interrupt signal received. Performing main exit...")
 		os.Exit(0)
 	}()
+	var customCandle models.MyCandle
 	go GetCandleStruct(subscribeMessage, ch)
-	go GetCoustumCandle(candle)
+	tf = tf * 250 * 4
+	go GetCustomCandle(tf, ch, customCandle)
 	for data := range ch {
 		fmt.Println(data)
 	}
 }
-func GetCandleStruct(subscribeMessage []byte, candle chan<- Candle) {
+func GetCandleStruct(subscribeMessage []byte, candle chan<- models.Candle) {
 	wss := "wss://stream.binance.com:9443/ws"
 	for {
 		conn, _, err := websocket.DefaultDialer.Dial(wss, nil)
@@ -114,7 +94,7 @@ func GetCandleStruct(subscribeMessage []byte, candle chan<- Candle) {
 					time.Sleep(12 * time.Second)
 					break
 				}
-				var data Candle
+				var data models.Candle
 				err = json.Unmarshal(message, &data)
 				if err != nil {
 					fmt.Println("Error parsing JSON:", err)
@@ -125,8 +105,44 @@ func GetCandleStruct(subscribeMessage []byte, candle chan<- Candle) {
 		}()
 		select {}
 	}
-
 }
-func GetCoustumCandle(candle string) {
-
+func GetCustomCandle(timeframe int, DefaultCandle <-chan models.Candle, customCandle models.MyCandle) {
+	customArr := make([]models.MyCandle, 0)
+	for data := range DefaultCandle {
+		intOP, _ := strconv.Atoi(data.K.OP)
+		intCP, _ := strconv.Atoi(data.K.CP)
+		intHP, _ := strconv.Atoi(data.K.HP)
+		intLP, _ := strconv.Atoi(data.K.LP)
+		intVol, _ := strconv.Atoi(data.K.Vol)
+		data.K.CT += 1
+		customCandle.CP = intCP
+		customCandle.CT += int(data.K.CT) - int(data.K.OT)
+		if !customCandle.Done && customCandle.CT-customCandle.OT == 999 {
+			customCandle.OT = int(data.K.OT)
+			customCandle.OP = intOP
+		}
+		if intHP > customCandle.HP {
+			customCandle.HP = intHP
+		}
+		if intLP < customCandle.LP {
+			customCandle.LP = intLP
+		}
+		customCandle.Vol += intVol
+		if timeframe == customCandle.CT-customCandle.OT {
+			customCandle.Done = true
+			customArr = append(customArr, customCandle)
+			customCandle = models.MyCandle{
+				OT:   0,
+				CT:   0,
+				OP:   0,
+				CP:   0,
+				HP:   0,
+				LP:   0,
+				Vol:  0,
+				Done: false,
+			}
+			customArr = append(customArr, customCandle)
+		}
+		fmt.Printf("%v", customArr[len(customArr)-1])
+	}
 }
