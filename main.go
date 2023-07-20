@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -35,13 +36,12 @@ func main() {
 		fmt.Printf("Interrupt signal received. Performing main exit...")
 		os.Exit(0)
 	}()
-	var customCandle models.MyCandle
 	go GetCandleStruct(subscribeMessage, ch)
 	tf = tf * 250 * 4
-	go GetCustomCandle(tf, ch, customCandle)
-	for data := range ch {
-		fmt.Println(data)
-	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go GetCustomCandle(tf, ch, &wg)
+	wg.Wait()
 }
 func GetCandleStruct(subscribeMessage []byte, candle chan<- models.Candle) {
 	wss := "wss://stream.binance.com:9443/ws"
@@ -100,25 +100,51 @@ func GetCandleStruct(subscribeMessage []byte, candle chan<- models.Candle) {
 					fmt.Println("Error parsing JSON:", err)
 					continue
 				}
-				candle <- data
+				if data.K.OT != 0 && data.K.CT != 0 {
+					candle <- data
+				}
 			}
 		}()
 		select {}
 	}
 }
-func GetCustomCandle(timeframe int, DefaultCandle <-chan models.Candle, customCandle models.MyCandle) {
+func GetCustomCandle(timeframe int, DefaultCandle <-chan models.Candle, wg *sync.WaitGroup) {
+	defer wg.Done()
 	customArr := make([]models.MyCandle, 0)
+	var customCandle models.MyCandle
+	// go func() {
+	i := 1
 	for data := range DefaultCandle {
-		intOP, _ := strconv.Atoi(data.K.OP)
-		intCP, _ := strconv.Atoi(data.K.CP)
-		intHP, _ := strconv.Atoi(data.K.HP)
-		intLP, _ := strconv.Atoi(data.K.LP)
-		intVol, _ := strconv.Atoi(data.K.Vol)
+		intOP, err := strconv.ParseFloat(data.K.OP, 64)
+		if err != nil {
+			fmt.Printf("%v", err)
+			continue
+		}
+		intCP, err := strconv.ParseFloat(data.K.CP, 64)
+		if err != nil {
+			fmt.Printf("CP")
+			continue
+		}
+		intHP, err := strconv.ParseFloat(data.K.HP, 64)
+		if err != nil {
+			fmt.Printf("HP")
+			continue
+		}
+		intLP, err := strconv.ParseFloat(data.K.LP, 64)
+		if err != nil {
+			fmt.Printf("LP")
+			continue
+		}
+		intVol, err := strconv.ParseFloat(data.K.Vol, 64)
+		if err != nil {
+			fmt.Printf("vol")
+			continue
+		}
 		data.K.CT += 1
 		customCandle.CP = intCP
-		customCandle.CT += int(data.K.CT) - int(data.K.OT)
+		customCandle.CT += float64(data.K.CT) - float64(data.K.OT)
 		if !customCandle.Done && customCandle.CT-customCandle.OT == 999 {
-			customCandle.OT = int(data.K.OT)
+			customCandle.OT = float64(data.K.OT)
 			customCandle.OP = intOP
 		}
 		if intHP > customCandle.HP {
@@ -128,7 +154,7 @@ func GetCustomCandle(timeframe int, DefaultCandle <-chan models.Candle, customCa
 			customCandle.LP = intLP
 		}
 		customCandle.Vol += intVol
-		if timeframe == customCandle.CT-customCandle.OT {
+		if float64(timeframe) == customCandle.CT-customCandle.OT {
 			customCandle.Done = true
 			customArr = append(customArr, customCandle)
 			customCandle = models.MyCandle{
@@ -143,6 +169,10 @@ func GetCustomCandle(timeframe int, DefaultCandle <-chan models.Candle, customCa
 			}
 			customArr = append(customArr, customCandle)
 		}
-		fmt.Printf("%v", customArr[len(customArr)-1])
+		if len(customArr) != 0 {
+			fmt.Printf("%v\n", customArr[len(customArr)-i])
+			i++
+		}
 	}
+	// }()
 }

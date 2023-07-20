@@ -28,12 +28,12 @@ type K struct {
 }
 
 type MyCandle struct {
-	OT   int
-	CT   int
-	OP   int
-	CP   int
-	HP   int
-	LP   int
-	Vol  int
+	OT   float64
+	CT   float64
+	OP   float64
+	CP   float64
+	HP   float64
+	LP   float64
+	Vol  float64
 	Done bool
 }
