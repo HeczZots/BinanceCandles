@@ -110,10 +110,8 @@ func GetCandleStruct(subscribeMessage []byte, candle chan<- models.Candle) {
 }
 func GetCustomCandle(timeframe int, DefaultCandle <-chan models.Candle, wg *sync.WaitGroup) {
 	defer wg.Done()
-	customArr := make([]models.MyCandle, 0)
+	customArr := make([]models.MyCandle, 1)
 	var customCandle models.MyCandle
-	// go func() {
-	i := 1
 	for data := range DefaultCandle {
 		intOP, err := strconv.ParseFloat(data.K.OP, 64)
 		if err != nil {
@@ -140,23 +138,25 @@ func GetCustomCandle(timeframe int, DefaultCandle <-chan models.Candle, wg *sync
 			fmt.Printf("vol")
 			continue
 		}
+		if customArr[len(customArr)-1].OT == 0 {
+			customArr[len(customArr)-1].OT = data.K.OT
+			customArr[len(customArr)-1].OP = intOP
+			customArr[len(customArr)-1].CT = data.K.OT + 1000
+		}
 		data.K.CT += 1
-		customCandle.CP = intCP
-		customCandle.CT += float64(data.K.CT) - float64(data.K.OT)
-		if !customCandle.Done && customCandle.CT-customCandle.OT == 999 {
-			customCandle.OT = float64(data.K.OT)
-			customCandle.OP = intOP
+		customArr[len(customArr)-1].CP = intCP
+		customArr[len(customArr)-1].CT += 1000
+		fmt.Printf("\n CT OT dflt: %v : %v\n", data.K.CT, data.K.OT)
+		fmt.Printf("\nCT OT : %v : %v\n", customArr[len(customArr)-1].CT, customArr[len(customArr)-1].OT)
+		if intHP > customArr[len(customArr)-1].HP {
+			customArr[len(customArr)-1].HP = intHP
 		}
-		if intHP > customCandle.HP {
-			customCandle.HP = intHP
+		if intLP < customArr[len(customArr)-1].LP {
+			customArr[len(customArr)-1].LP = intLP
 		}
-		if intLP < customCandle.LP {
-			customCandle.LP = intLP
-		}
-		customCandle.Vol += intVol
-		if float64(timeframe) == customCandle.CT-customCandle.OT {
-			customCandle.Done = true
-			customArr = append(customArr, customCandle)
+		customArr[len(customArr)-1].Vol += intVol
+		if int64(timeframe) == customArr[len(customArr)-1].CT-customArr[len(customArr)-1].OT {
+			customArr[len(customArr)-1].Done = true
 			customCandle = models.MyCandle{
 				OT:   0,
 				CT:   0,
@@ -167,12 +167,10 @@ func GetCustomCandle(timeframe int, DefaultCandle <-chan models.Candle, wg *sync
 				Vol:  0,
 				Done: false,
 			}
+			if len(customArr) != 0 {
+				fmt.Printf("%v\n", customArr[len(customArr)-1])
+			}
 			customArr = append(customArr, customCandle)
 		}
-		if len(customArr) != 0 {
-			fmt.Printf("%v\n", customArr[len(customArr)-i])
-			i++
-		}
 	}
-	// }()
 }

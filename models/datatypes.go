@@ -28,8 +28,8 @@ type K struct {
 }
 
 type MyCandle struct {
-	OT   float64
-	CT   float64
+	OT   int64
+	CT   int64
 	OP   float64
 	CP   float64
 	HP   float64
